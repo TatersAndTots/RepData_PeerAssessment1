@@ -1,25 +1,173 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: 'Course Project 1: Activity Monitoring Analysis'
+author: "Joseph Dinsmore"
+date: "November 11, 2016"
+output: html_document
+keep_md: true
 ---
 
+## Loading and Preparing The Data
 
-## Loading and preprocessing the data
+Before the analysis begins, the data and the workspace need to be prepared. We set our working directory, clear the workspace, and load the needed packages first. Second, we use **read.scv()** to bring the data into our workspace:
+
+```{r}
+setwd("~/R_Coding/Mod5/RepData_PeerAssessment1")
+rm(list=ls())  
+library(ggplot2)
+library(knitr)
+
+data <- read.csv("activity.csv")
+```
+
+The data was saved in a proper format, so there is no need for any organization or cleaning on my part:
+```{r}
+head(data)
+```
 
 
 
-## What is mean total number of steps taken per day?
+## What is the mean number of steps taken per day?
+
+This question has four requirements: to find the sum/mean/median of steps taken each day of our sample and a histogram of the total steps taken per day. To start we split up our data by date:
+```{r}
+days <- split(data$steps, data$date)
+```
+
+An unchanged **split()** function outputs a list, so we use **lapply()** with the sum, the mean, and then the median functions, all unlisted, to get three vectors. I combined all three of these into a data frame for easy referencing:
+
+```{r}
+dayssum <- unlist(lapply(days, sum))
+daysme <- unlist(lapply(days, mean))
+daysmd <- unlist(lapply(days, median))
+
+daysdf <- data.frame(cbind(dayssum, daysme, daysmd))
+names(daysdf) <- c("Sum", "Mean", "Median")
+head(daysdf)
+```
+
+We also require a histogram of the steps taken:
+```{r}
+hist(daysdf$Sum, breaks = 15, main = "Total Steps Taken Per Day", xlab = "Steps")
+```
+
+It is important to note that this looks normally-distributed with only a slight left skew. This fact will be important later in this assignment.
 
 
 
-## What is the average daily activity pattern?
+##What is the average daily activity pattern?
+
+For this we do something similar to the data frame from earlier but this time we split the data by interval, not by date.
+
+```{r}
+int <- na.omit(data)
+intin <- split(int$steps, int$interval)
+intinm <- unlist(lapply(na.omit(intin), mean))
+plot(names(intinm), intinm, type = "l", main = "Average Number of Steps Taken per 5 Minute Interval"
+     , xlab = "Interval", ylab = "Steps")
+```
+
+That spike around 900 or so is interesting. How big is it?
+
+```{r}
+range(intinm)
+```
+
+So 206 steps, on average. Where is it?
+
+```{r}
+which(intinm %in% max(intinm))
+```
+```{r}
+intinm[104]
+```
+
+Interval 835, then. That comes out to a five-minute interval running from 8:35-8:40 AM. That spike is probably from people getting to work via car, since that time frame is right in rush hour and lots of people are traveling.
+
+
+##Imputing missing values
+
+Earlier I had to omit or ignore NA values. Look back at the dataframe, some of the days have NA for their values. Lets take a look at that.
+
+```{r}
+c(sum(is.na(data$steps)), sum(is.na(data$interval)), sum(is.na(data$date)))
+```
+
+2304 total NA values and they are all steps. These values mess up calculations, mean() for example, and removing them entirely removes parts of our data. It is bad to keep them as NA and bad to remove them, so what we do? What if we replaced those NA's?
+
+Refer back to the histogram from earlier. That data is what mathematical statisticians would say "Normally-distributed". The data conforms to the Bell Curve, known as the Normal Distribution. In this case, the mean is a good estimator. Instead of NA's, lets see what happens if we replace all the NA's with the mean value of the steps taken, 37.3826.
+
+```{r}
+med <- function(x) {
+  if (is.na(x)) 
+    {x <- 37.3826}
+  else {x <- x}
+}
+
+datana <- cbind(sapply(data$steps, med), data[,2:3])
+names(datana) <- c("steps", "date", "interval")
+days2 <- split(datana$steps, datana$date)
+dayssum2 <- unlist(lapply(days2, mean))
+daysme2 <- unlist(lapply(days2, mean))
+daysmd2 <- unlist(lapply(days2, median))
+daysdf2 <- data.frame(cbind(dayssum2, daysme2, daysmd2))
+names(daysdf2) <- c("Sum", "Mean", "Median")
+
+head(daysdf2)
+
+hist(daysdf2$Sum, breaks = 15, main = "Total Steps Taken Per Day", xlab = "Steps")
+```
+
+The only effect was to stack the histogram at the band that includes the mean. The distribution is now more normal than the previous histogram and this is a bad thing, as I have essentially added more data to the sample that wasn't there before, altering any calculations I might do. In the end, I'd rather omit the NA's entirely instead of replacing them with anything.
+
+
+##Are there differences in activity patterns between weekdays and weekends?
+
+Finally let's look at the sample, differentiating between weekday and weekend movement. 
+
+The steps I will take will be:
+
+1. Create a factor variable to distinguish weekday days from weekend days
+
+```{r}
+week <- function(x) {
+  if (weekdays(as.Date(x)) == "Saturday" | weekdays(as.Date(x)) == "Sunday" ) 
+  {x <- "Weekend"}
+  else {x <- "Weekday"}
+}
+
+datana <- cbind(datana, sapply(data$date, week))
+names(datana) <- c("steps", "date", "interval", "weekday_or_weekend")
+```
+
+2. Split the data by weekend and weekday and create two different data frames
+
+```{r}
+dataday <- split(datana, datana$weekday_or_weekend)
+dataday1 <- dataday[[1]]
+dataday2 <- dataday[[2]]
+```
+
+
+3. Split each data frame by the intervals and recreate my time series plot from earlier
+
+```{r}
+dataday11 <- split(dataday1$steps, dataday1$interval)
+dataday22 <- split(dataday2$steps, dataday2$interval)
+datamean1 <- unlist(lapply(dataday11, mean))
+datamean2 <- unlist(lapply(dataday22, mean))
+datadf <- data.frame(cbind(datamean1, datamean2))
+names(datadf) <- c("Weekday_Average", "Weekend_Average")
+
+par(mfrow = c(2,1))
+plot(row.names(datadf), datadf$Weekday_Average, type = "l", main = "Average Weekday Steps"
+     , xlab = "Interval", ylab = "Steps")
+
+plot(row.names(datadf), datadf$Weekend_Average, type = "l", main = "Average Weekend Steps"
+     , xlab = "Interval", ylab = "Steps")
+
+```
+
+It looks like there is a similar spike of movement around 8AM in both charts and more movement overall in during the weekend. The person who moved for this sample probably has a desk job, if I had to make any more observations.
 
 
 
-## Imputing missing values
-
-
-
-## Are there differences in activity patterns between weekdays and weekends?
